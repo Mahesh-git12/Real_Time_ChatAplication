@@ -29,3 +29,4 @@ yarn-error.log*
 # Optional: ignore logs
 /logs
 *.log
+.vercel
