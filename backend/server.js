@@ -37,6 +37,8 @@ app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+
+
 // Middleware for token auth
 const protect = (req, res, next) => {
   let token;
