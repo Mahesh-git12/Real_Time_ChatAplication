@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Box, Typography, TextField, Button, Alert, Paper } from "@mui/material";
 import axios from "axios";
 
+const API_BASE = process.env.REACT_APP_API_URL;
+
 function useQuery() {
   return new URLSearchParams(useLocation().search);
 }
@@ -40,10 +42,7 @@ function ResetPassword() {
 
     setLoading(true);
     try {
-      await axios.post("http://localhost:5000/api/auth/reset-password", {
-        token,
-        newPassword,
-      });
+      await axios.post(`${API_BASE}/api/auth/reset-password`, { token, newPassword });
       setSuccess("Password reset successful! Redirecting to login...");
       setTimeout(() => navigate("/login"), 3000);
     } catch (err) {

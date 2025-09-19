@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { Box, Typography, TextField, Button, Alert, Paper } from "@mui/material";
 import axios from "axios";
 
+const API_BASE = process.env.REACT_APP_API_URL;
+
 function RequestReset() {
   const [email, setEmail] = useState("");
   const [msg, setMsg] = useState("");
@@ -14,7 +16,7 @@ function RequestReset() {
     setMsg("");
     setLoading(true);
     try {
-      const res = await axios.post("http://localhost:5000/api/auth/request-reset", { email });
+      const res = await axios.post(`${API_BASE}/api/auth/request-reset`, { email });
       setMsg("If the email exists, a reset link has been sent.");
       setEmail("");
     } catch (err) {

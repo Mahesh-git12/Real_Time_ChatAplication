@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Box, TextField, Button, Alert } from '@mui/material';
 import axios from 'axios';
 
+const API_BASE = process.env.REACT_APP_API_URL;
+
 const ChangePassword = () => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -29,7 +31,7 @@ const ChangePassword = () => {
     try {
       // Assuming your API requires a token in Authorization header
       const token = localStorage.getItem('token');
-      await axios.post('/api/auth/change-password', 
+      await axios.post(`${API_BASE}/api/auth/change-password`, 
         { currentPassword, newPassword }, 
         { headers: { Authorization: `Bearer ${token}` } }
       );

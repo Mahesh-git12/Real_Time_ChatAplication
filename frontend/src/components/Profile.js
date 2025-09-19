@@ -12,6 +12,9 @@ import Particles from "react-tsparticles";
 import { loadFull } from "tsparticles";
 import axios from "axios";
 
+// Add API_BASE
+const API_BASE = process.env.REACT_APP_API_URL;
+
 function UserProfile({ userId }) {
   const token = localStorage.getItem("token");
   const [user, setUser] = useState(null);
@@ -57,7 +60,7 @@ function UserProfile({ userId }) {
       setLoadingUser(true);
       setError(null);
       try {
-        const res = await axios.get(`/api/users/${userId}`, {
+        const res = await  axios.get(`${API_BASE}/api/users/${userId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (mounted) {
@@ -88,7 +91,7 @@ function UserProfile({ userId }) {
     setError(null);
 
     try {
-      const res = await axios.post("http://localhost:5000/api/upload", formData, {
+      const res = await  axios.post(`${API_BASE}/api/upload`, formData, {
         headers: {
           "Content-Type": "multipart/form-data",
           Authorization: `Bearer ${token}`,
@@ -96,7 +99,7 @@ function UserProfile({ userId }) {
       });
 
       const updatedUser = await axios.patch(
-        `/api/users/${userId}`,
+        `${API_BASE}/api/users/${userId}`,
         { profilePhoto: res.data.fileUrl },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -125,7 +128,7 @@ function UserProfile({ userId }) {
     setError(null);
     try {
       const updatedUser = await axios.patch(
-        `/api/users/${userId}`,
+        `${API_BASE}/api/users/${userId}`,
         { username: editUsername.trim(), status: editStatus.trim() },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -280,71 +283,3 @@ function UserProfile({ userId }) {
 }
 
 export default UserProfile;
-
-
-// import React from 'react';
-// import { Box, Typography, Avatar, Paper, Divider, Button } from '@mui/material';
-// import Background3D from './Background3D';
-
-// function Profile({ userId, username }) {
-//   return (
-//     <>
-//       <Background3D />
-//       <Box
-//         sx={{
-//           position: 'relative',
-//           minHeight: 'calc(100vh - 64px)',
-//           zIndex: 1,
-//           display: 'flex',
-//           justifyContent: 'center',
-//           alignItems: 'center',
-//           pt: 0,
-//         }}
-//       >
-//         <Paper
-//           elevation={12}
-//           sx={{
-//             p: 6,
-//             borderRadius: 5,
-//             maxWidth: 400,
-//             minWidth: 340,
-//             textAlign: 'center',
-//             bgcolor: 'rgba(39, 27, 81, 0.85)',
-//             color: '#e0e7ff',
-//             boxShadow: '0 6px 38px #7f5af0a0',
-//           }}
-//         >
-//           <Avatar
-//             sx={{
-//               bgcolor: '#7b5cf5',
-//               width: 90,
-//               height: 90,
-//               fontSize: 38,
-//               mb: 2,
-//               mx: 'auto',
-//               boxShadow: '0 2px 24px #7b5cf588'
-//             }}
-//           >
-//             {username.charAt(0).toUpperCase()}
-//           </Avatar>
-//           <Typography variant="h5" fontWeight={700} gutterBottom>
-//             {username}
-//           </Typography>
-//           <Divider sx={{ my: 2, bgcolor: '#8164e7' }} />
-//           <Typography variant="body2" sx={{ opacity: 0.8 }}>
-//             <strong>User ID:</strong> {userId}
-//           </Typography>
-//           <Typography variant="body1" sx={{ mt: 3, mb: 2 }}>
-//             Welcome to your profile!  
-//             You can update your display name, set a custom status, or add a profile picture here in future releases.
-//           </Typography>
-//           <Button variant="contained" color="secondary" sx={{ mt: 2, p: 1 }}>
-//             Edit Profile (Coming Soon)
-//           </Button>
-//         </Paper>
-//       </Box>
-//     </>
-//   );
-// }
-
-// export default Profile;

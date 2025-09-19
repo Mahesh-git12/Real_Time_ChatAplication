@@ -16,10 +16,14 @@ import { loadFull } from "tsparticles";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
+// Add this line for API Base:
+const API_BASE = process.env.REACT_APP_API_URL;
+
 const getAvatarUrl = (profilePhoto) => {
   if (!profilePhoto) return undefined;
   if (profilePhoto.startsWith("http")) return profilePhoto;
-  return `http://localhost:5000/${profilePhoto.replace(/^\/+/, "")}`;
+  // Use API_BASE so avatars work in all envs
+  return `${API_BASE}/${profilePhoto.replace(/^\/+/, "")}`;
 };
 
 function HomePage({ user, onlineUsers = [] }) {
@@ -31,7 +35,8 @@ function HomePage({ user, onlineUsers = [] }) {
     const fetchRecent = async () => {
       try {
         const token = localStorage.getItem("token");
-        const res = await axios.get("http://localhost:5000/api/messages", {
+        // Updated to use API_BASE:
+        const res = await axios.get(`${API_BASE}/api/messages`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const msgs = res.data.reverse().slice(0, 5); // last 5
@@ -287,7 +292,7 @@ function HomePage({ user, onlineUsers = [] }) {
 
 export default HomePage;
 
-// import React from "react";
+// import React, { useEffect, useState } from "react";
 // import {
 //   Box,
 //   Typography,
@@ -298,31 +303,41 @@ export default HomePage;
 //   Stack,
 //   Divider,
 //   Chip,
+//   Button,
 // } from "@mui/material";
 // import Particles from "react-tsparticles";
 // import { loadFull } from "tsparticles";
 // import { useNavigate } from "react-router-dom";
-
-// // Dummy demo data (replace with props/state in usage)
-// const onlineUsersDemo = [
-//   { id: "1", username: "Shiva", profilePhoto: "" },
-//   { id: "2", username: "Vishnu", profilePhoto: "" },
-// ];
-// const recentChatsDemo = [
-//   { id: "1", userId: "1", username: "Shiva", lastMessage: "Hey, how are you?", profilePhoto: "" },
-//   { id: "2", userId: "2", username: "Vishnu", lastMessage: "Let's meet tomorrow.", profilePhoto: "" },
-// ];
+// import axios from "axios";
 
 // const getAvatarUrl = (profilePhoto) => {
 //   if (!profilePhoto) return undefined;
-//   if (profilePhoto.startsWith('http')) return profilePhoto;
-//   return `http://localhost:5000/${profilePhoto.replace(/^\/+/, '')}`;
+//   if (profilePhoto.startsWith("http")) return profilePhoto;
+//   return `http://localhost:5000/${profilePhoto.replace(/^\/+/, "")}`;
 // };
 
-// function HomePage({ user, onlineUsers = onlineUsersDemo, recentChats = recentChatsDemo }) {
+// function HomePage({ user, onlineUsers = [] }) {
 //   const navigate = useNavigate();
+//   const [recentChats, setRecentChats] = useState([]);
 
-//   // Particle initialization
+//   // Fetch recent chats (last 5 messages)
+//   useEffect(() => {
+//     const fetchRecent = async () => {
+//       try {
+//         const token = localStorage.getItem("token");
+//         const res = await axios.get("http://localhost:5000/api/messages", {
+//           headers: { Authorization: `Bearer ${token}` },
+//         });
+//         const msgs = res.data.reverse().slice(0, 5); // last 5
+//         setRecentChats(msgs);
+//       } catch (err) {
+//         console.error("Failed to fetch recent chats:", err.message);
+//       }
+//     };
+//     fetchRecent();
+//   }, []);
+
+//   // Particle background setup
 //   const particlesInit = async (engine) => {
 //     await loadFull(engine);
 //   };
@@ -354,7 +369,14 @@ export default HomePage;
 //         id="tsparticles"
 //         init={particlesInit}
 //         options={particlesOptions}
-//         style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", zIndex: 0 }}
+//         style={{
+//           position: "fixed",
+//           top: 0,
+//           left: 0,
+//           width: "100%",
+//           height: "100%",
+//           zIndex: 0,
+//         }}
 //       />
 
 //       <Container
@@ -395,7 +417,8 @@ export default HomePage;
 //                 border: "3px solid #9562e2",
 //               }}
 //             >
-//               {!user?.profilePhoto && (user?.username ? user.username[0].toUpperCase() : "?")}
+//               {!user?.profilePhoto &&
+//                 (user?.username ? user.username[0].toUpperCase() : "?")}
 //             </Avatar>
 //             <Box>
 //               <Typography variant="h6" sx={{ mb: 1 }}>
@@ -409,6 +432,36 @@ export default HomePage;
 //               </Typography>
 //             </Box>
 //           </Stack>
+
+//           {/* Quick Navigation */}
+//           <Stack
+//             direction="row"
+//             spacing={2}
+//             justifyContent="center"
+//             sx={{ mt: 3 }}
+//           >
+//             <Button
+//               variant="contained"
+//               color="primary"
+//               onClick={() => navigate("/group")}
+//             >
+//               Global Chat
+//             </Button>
+//             <Button
+//               variant="outlined"
+//               color="secondary"
+//               onClick={() => navigate("/private/select")}
+//             >
+//               Private Chat
+//             </Button>
+//             <Button
+//               variant="outlined"
+//               color="info"
+//               onClick={() => navigate("/settings")}
+//             >
+//               Settings
+//             </Button>
+//           </Stack>
 //         </Box>
 
 //         {/* Online Users Section */}
@@ -417,7 +470,9 @@ export default HomePage;
 //             Online Users
 //           </Typography>
 //           <Stack direction="row" spacing={2} flexWrap="wrap">
-//             {onlineUsers.length === 0 && <Chip label="No users online" color="default" />}
+//             {onlineUsers.length === 0 && (
+//               <Chip label="No users online" color="default" />
+//             )}
 //             {onlineUsers.map((usr) => (
 //               <Chip
 //                 key={usr.id}
@@ -426,7 +481,8 @@ export default HomePage;
 //                     src={getAvatarUrl(usr.profilePhoto)}
 //                     sx={{ bgcolor: "#7b5cf5", fontSize: 18 }}
 //                   >
-//                     {!usr.profilePhoto && (usr.username ? usr.username[0].toUpperCase() : "?")}
+//                     {!usr.profilePhoto &&
+//                       (usr.username ? usr.username[0].toUpperCase() : "?")}
 //                   </Avatar>
 //                 }
 //                 label={usr.username}
@@ -450,14 +506,15 @@ export default HomePage;
 //           </Typography>
 //           <Grid container spacing={3}>
 //             {recentChats.length === 0 && (
-//               <Typography sx={{ opacity: 0.6, pl: 2 }}>No recent chats yet.</Typography>
+//               <Typography sx={{ opacity: 0.6, pl: 2 }}>
+//                 No recent chats yet.
+//               </Typography>
 //             )}
 //             {recentChats.map((chat) => (
-//               <Grid item xs={12} sm={6} md={4} key={chat.id}>
+//               <Grid item xs={12} sm={6} md={4} key={chat._id}>
 //                 <Box
 //                   sx={{ cursor: "pointer", height: "100%" }}
 //                   onClick={() => navigate(`/private/${chat.userId}`)}
-
 //                 >
 //                   <Card
 //                     sx={{
@@ -478,13 +535,23 @@ export default HomePage;
 //                   >
 //                     <Avatar
 //                       src={getAvatarUrl(chat.profilePhoto)}
-//                       sx={{ bgcolor: "#7b5cf5", mr: 2, width: 46, height: 46, fontSize: 22 }}
+//                       sx={{
+//                         bgcolor: "#7b5cf5",
+//                         mr: 2,
+//                         width: 46,
+//                         height: 46,
+//                         fontSize: 22,
+//                       }}
 //                     >
 //                       {!chat.profilePhoto &&
 //                         (chat.username ? chat.username[0].toUpperCase() : "?")}
 //                     </Avatar>
 //                     <Box>
-//                       <Typography variant="subtitle1" fontWeight="bold" color="#c8c8ff">
+//                       <Typography
+//                         variant="subtitle1"
+//                         fontWeight="bold"
+//                         color="#c8c8ff"
+//                       >
 //                         {chat.username}
 //                       </Typography>
 //                       <Divider sx={{ opacity: 0.24, my: 0.5 }} />
@@ -498,7 +565,7 @@ export default HomePage;
 //                           maxWidth: 180,
 //                         }}
 //                       >
-//                         {chat.lastMessage}
+//                         {chat.content || chat.message}
 //                       </Typography>
 //                     </Box>
 //                   </Card>
