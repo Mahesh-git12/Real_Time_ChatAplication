@@ -26,10 +26,15 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIO(server, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    origin: [
+      "http://localhost:3000",
+      "https://real-time-chat-application-lac-nu.vercel.app"
+    ],
     methods: ["GET", "POST"]
   }
 });
+
+
 
 app.use(cors());
 app.use(express.json());
