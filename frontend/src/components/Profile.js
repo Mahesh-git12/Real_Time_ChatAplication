@@ -192,7 +192,7 @@ function UserProfile({ userId }) {
           <>
             <Box sx={{ mb: 3 }}>
               <Avatar
-                src={user?.profilePhoto ? `http://localhost:5000${user.profilePhoto}` : ""}
+                src={user?.profilePhoto ? `${API_BASE}${user.profilePhoto}` : ""}
                 sx={{
                   width: 120,
                   height: 120,

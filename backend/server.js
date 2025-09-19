@@ -14,23 +14,28 @@ const Group = require('./models/Group');
 const GroupMessage = require('./models/GroupMessage');
 
 const authRoutes = require('./routes/auth');
-const messageRoutes = require('./routes/messages'); // your global messages routes
+const messageRoutes = require('./routes/messages');
 const privateRoutes = require('./routes/private');
 const groupRoutes = require('./routes/group');
 const groupMessagesRoutes = require('./routes/groupMessages');
 const userRoutes = require('./routes/users');
 const uploadRoutes = require('./routes/upload');
+const PrivateMessage = require('./models/PrivateMessage');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIO(server, { cors: { origin: "http://localhost:3000", methods: ["GET", "POST"] } });
+const io = socketIO(server, {
+  cors: {
+    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    methods: ["GET", "POST"]
+  }
+});
 
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// If you already have auth middleware file, use it.
-// Otherwise define 'protect' inline and export it to use in routes OR keep using middleware/authMiddleware as used above.
+// Middleware for token auth
 const protect = (req, res, next) => {
   let token;
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
@@ -39,26 +44,25 @@ const protect = (req, res, next) => {
   if (!token) return res.status(401).json({ message: 'No token, authorization denied' });
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // { id, username, ... } depending on your token payload
+    req.user = decoded;
     next();
   } catch (err) {
     return res.status(401).json({ message: 'Token is not valid' });
   }
 };
 
-// Mount routes (group routes expect a middleware auth file named middleware/authMiddleware)
-// If you don't have middleware/authMiddleware, either create it using the same protect above or import the protect here
+// Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/messages', protect, messageRoutes);
 app.use('/api', privateRoutes);
 app.use('/api/upload', uploadRoutes);
-app.use('/api/group', groupRoutes);            // group create & get
-app.use('/api/group', groupMessagesRoutes);    // group messages (/:groupId/messages)
+app.use('/api/group', groupRoutes);
+app.use('/api/group', groupMessagesRoutes);
 app.use('/api', userRoutes);
 
 app.get('/', (req, res) => res.send('API running'));
 
-// Global chat summary endpoint if you need it
+// Global chat fetch
 app.get('/api/messages', protect, async (req, res) => {
   const messages = await Message.find().populate('sender', 'username profilePhoto').sort({ createdAt: 1 });
   res.json(messages.map(m => ({
@@ -84,14 +88,13 @@ async function broadcastOnlineUsers() {
   }
 }
 
-// socket auth middleware (use token from handshake.auth)
+// Socket authentication
 io.use((socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
     if (!token) return next(new Error('Authentication error'));
     const user = jwt.verify(token, process.env.JWT_SECRET);
-    socket.user = user; // { id: ..., username: ... }
-    // join personal room for direct messages if desired
+    socket.user = user;
     socket.join(user.id);
     next();
   } catch (err) {
@@ -104,7 +107,7 @@ io.on('connection', (socket) => {
   onlineUsers.add(String(socket.user.id));
   broadcastOnlineUsers();
 
-  // GLOBAL CHAT
+  // ✅ GLOBAL CHAT
   socket.on('chatMessage', async (msg) => {
     try {
       const saved = await Message.create({
@@ -125,7 +128,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // GROUPS: join all groups the user is part of
+  // ✅ GROUP CHAT
   socket.on('joinGroups', async () => {
     try {
       const groups = await Group.find({ members: socket.user.id });
@@ -135,33 +138,22 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Join a single group ? server verifies membership
   socket.on('joinGroup', async (groupId) => {
     try {
       const group = await Group.findById(groupId);
       if (group && group.members.map(String).includes(String(socket.user.id))) {
         socket.join(groupId);
-      } else {
-        console.warn(`Socket: user ${socket.user.id} tried to join group ${groupId} without membership`);
       }
     } catch (err) {
       console.error('joinGroup error:', err.message);
     }
   });
 
-  socket.on('leaveGroup', (groupId) => {
-    try { socket.leave(groupId); } catch (err) { /* ignore */ }
-  });
-
-  // SEND a group message ? server verifies membership and uses socket.user.id as sender
   socket.on('groupMessage', async ({ groupId, message }) => {
     try {
       const group = await Group.findById(groupId).lean();
       if (!group) return;
-      if (!group.members.map(String).includes(String(socket.user.id))) {
-        console.warn(`Socket: user ${socket.user.id} tried to send message to ${groupId} without membership`);
-        return;
-      }
+      if (!group.members.map(String).includes(String(socket.user.id))) return;
 
       const groupMsg = new GroupMessage({
         group: groupId,
@@ -183,9 +175,50 @@ io.on('connection', (socket) => {
     }
   });
 
-  // TYPING (optional)
-  socket.on('typing', (data) => socket.broadcast.emit('typing', data));
-  socket.on('stopTyping', (data) => socket.broadcast.emit('stopTyping', data));
+  // ✅ PRIVATE CHAT
+  // ✅ PRIVATE CHAT
+socket.on("privateMessage", async (msg) => {
+  try {
+    const { to, content, fileUrl, timestamp } = msg;
+
+    // Store to DB using correct model and keys
+    const newMessage = await PrivateMessage.create({
+      from: socket.user.id,
+      to,
+      content: content || "",
+      fileUrl: fileUrl || "",
+      timestamp: timestamp ? new Date(timestamp) : new Date(),
+    });
+
+    // Populate sender for response
+    const populated = await newMessage.populate("from", "username profilePhoto");
+
+    // Send to recipient
+    io.to(to).emit("privateMessage", {
+      from: String(socket.user.id),
+      to: String(to),
+      username: populated.from.username,
+      profilePhoto: populated.from.profilePhoto || "",
+      content: populated.content,
+      fileUrl: populated.fileUrl,
+      timestamp: populated.timestamp,
+    });
+
+    // Send back to sender (for confirmation)
+    io.to(socket.user.id).emit("privateMessage", {
+      from: String(socket.user.id),
+      to: String(to),
+      username: populated.from.username,
+      profilePhoto: populated.from.profilePhoto || "",
+      content: populated.content,
+      fileUrl: populated.fileUrl,
+      timestamp: populated.timestamp,
+    });
+  } catch (err) {
+    console.error("privateMessage error:", err.message);
+  }
+});
+
 
   socket.on('disconnect', () => {
     onlineUsers.delete(String(socket.user.id));

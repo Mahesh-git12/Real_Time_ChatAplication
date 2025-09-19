@@ -16,30 +16,49 @@ import { loadFull } from "tsparticles";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
-// Add this line for API Base:
 const API_BASE = process.env.REACT_APP_API_URL;
 
 const getAvatarUrl = (profilePhoto) => {
   if (!profilePhoto) return undefined;
   if (profilePhoto.startsWith("http")) return profilePhoto;
-  // Use API_BASE so avatars work in all envs
-  return `${API_BASE}/${profilePhoto.replace(/^\/+/, "")}`;
+  const base = API_BASE.replace(/\/+$/, "");
+  const file = profilePhoto.replace(/^\/+/, "");
+  return `${base}/${file}`;
 };
 
-function HomePage({ user, onlineUsers = [] }) {
+function HomePage({ user, onlineUsers = [], setUser }) {
   const navigate = useNavigate();
   const [recentChats, setRecentChats] = useState([]);
+  const [dashboardUser, setDashboardUser] = useState(user);
+
+  // Fetch latest user info on mount and when user._id changes
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    const fetchDashboardUser = async () => {
+      if (!token || !user?._id) return;
+      try {
+        const res = await axios.get(`${API_BASE}/api/users/${user._id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setDashboardUser(res.data);
+        setUser && setUser(res.data);  // sync global user state
+        localStorage.setItem('user', JSON.stringify(res.data)); // sync to storage
+      } catch (err) {
+        // Optionally handle errors
+      }
+    };
+    fetchDashboardUser();
+  }, [user?._id, setUser]);
 
   // Fetch recent chats (last 5 messages)
   useEffect(() => {
     const fetchRecent = async () => {
       try {
         const token = localStorage.getItem("token");
-        // Updated to use API_BASE:
         const res = await axios.get(`${API_BASE}/api/messages`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const msgs = res.data.reverse().slice(0, 5); // last 5
+        const msgs = res.data.reverse().slice(0, 5);
         setRecentChats(msgs);
       } catch (err) {
         console.error("Failed to fetch recent chats:", err.message);
@@ -48,7 +67,7 @@ function HomePage({ user, onlineUsers = [] }) {
     fetchRecent();
   }, []);
 
-  // Particle background setup
+  // Particle background config
   const particlesInit = async (engine) => {
     await loadFull(engine);
   };
@@ -119,7 +138,7 @@ function HomePage({ user, onlineUsers = [] }) {
         >
           <Stack direction="row" alignItems="center" spacing={3}>
             <Avatar
-              src={getAvatarUrl(user?.profilePhoto)}
+              src={getAvatarUrl(dashboardUser?.profilePhoto)}
               sx={{
                 width: 90,
                 height: 90,
@@ -128,22 +147,26 @@ function HomePage({ user, onlineUsers = [] }) {
                 border: "3px solid #9562e2",
               }}
             >
-              {!user?.profilePhoto &&
-                (user?.username ? user.username[0].toUpperCase() : "?")}
+              {!dashboardUser?.profilePhoto &&
+                (dashboardUser?.username
+                  ? dashboardUser.username[0].toUpperCase()
+                  : "?")}
             </Avatar>
             <Box>
               <Typography variant="h6" sx={{ mb: 1 }}>
-                <strong>{user?.username || "Unknown User"}</strong>
+                <strong>{dashboardUser?.username || "Unknown User"}</strong>
               </Typography>
-              {user?.email && (
-                <Typography color="secondary.light">{user.email}</Typography>
+              {dashboardUser?.email && (
+                <Typography color="secondary.light">
+                  {dashboardUser.email}
+                </Typography>
               )}
               <Typography variant="body2" sx={{ mt: 1 }}>
-                <strong>Status: </strong> {user?.status || "No status set"}
+                <strong>Status: </strong>{" "}
+                {dashboardUser?.status || "No status set"}
               </Typography>
             </Box>
           </Stack>
-
           {/* Quick Navigation */}
           <Stack
             direction="row"
@@ -291,6 +314,7 @@ function HomePage({ user, onlineUsers = [] }) {
 }
 
 export default HomePage;
+
 
 // import React, { useEffect, useState } from "react";
 // import {

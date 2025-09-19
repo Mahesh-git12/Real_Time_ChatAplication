@@ -1,194 +1,169 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
-  Button,
-  TextField,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  Avatar,
   Box,
+  Typography,
+  TextField,
+  Button,
+  Paper,
+  IconButton,
+  Grid,
+  Avatar,
+  useTheme,
+  useMediaQuery,
 } from "@mui/material";
+import AttachFileIcon from "@mui/icons-material/AttachFile";
 import Particles from "react-tsparticles";
 import { loadFull } from "tsparticles";
-import socket from "../socket";
+import io from "socket.io-client";
 import axios from "axios";
 
-// ADD THIS LINE:
-const API_BASE = process.env.REACT_APP_API_URL;
+// ✅ Use env API URL for both local and production
+const API_URL = process.env.REACT_APP_API_URL;
 
-const COLORS = ["#a377fc", "#43e8d8", "#ff68a7", "#ffe156", "#7afcff", "#ffb38e"];
-function getColor(name = "") {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return COLORS[Math.abs(hash) % COLORS.length];
-}
+function Chat({ userId, username }) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-const CHAT_WIDTH = 520;
-
-const GroupChatPage = ({ currentUserId, currentUsername, currentUserPhoto }) => {
-  const [groups, setGroups] = useState([]);
-  const [selectedGroup, setSelectedGroup] = useState(null);
+  const token = localStorage.getItem("token");
+  const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
+  const [file, setFile] = useState(null);
+  const [typingUsers, setTypingUsers] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState([]);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [groupName, setGroupName] = useState("");
-  const [selectedUsers, setSelectedUsers] = useState([]);
-  const chatEndRef = useRef(null);
 
-  const authHeader = { Authorization: `Bearer ${localStorage.getItem("token")}` };
+  const messagesEndRef = useRef(null);
+  const typingTimeoutRef = useRef();
+  const socketRef = useRef(null);
 
   const particlesInit = useCallback(async (engine) => {
     await loadFull(engine);
   }, []);
 
+  // ✅ Setup socket connection once
   useEffect(() => {
-    function handleOnlineUsers(users) {
-      setOnlineUsers(users.filter((u) => u.id !== currentUserId));
-    }
-    socket.on("onlineUsers", handleOnlineUsers);
-    socket.emit("joinGroups");
-    return () => {
-      socket.off("onlineUsers", handleOnlineUsers);
-    };
-  }, [currentUserId]);
+    if (!token) return;
 
-  const openDialog = () => setDialogOpen(true);
-  const closeDialog = () => {
-    setDialogOpen(false);
-    setSelectedUsers([]);
-    setGroupName("");
-  };
+    socketRef.current = io(API_URL, { auth: { token } });
 
-  // CHANGE: Use API_BASE in axios calls
-  const handleCreateGroup = async () => {
-    if (!groupName.trim() || selectedUsers.length === 0)
-      return alert("Provide name and select members");
-    const memberIds = selectedUsers.map(String);
-    try {
-      const res = await axios.post(
-        `${API_BASE}/api/group/create`,
-        { name: groupName, members: memberIds },
-        { headers: authHeader }
-      );
-      setGroups((prev) => [res.data, ...prev]);
-      closeDialog();
-    } catch (err) {
-      alert("Error creating group");
-    }
-  };
+    socketRef.current.on("chatMessage", (data) => {
+      setMessages((prev) => [...prev, data]);
+    });
 
-  useEffect(() => {
-    let mounted = true;
-    axios
-      .get(`${API_BASE}/api/group`, { headers: authHeader })
-      .then((res) => {
-        if (mounted) setGroups(res.data);
-      })
-      .catch(() => {
-        axios
-          .get(`${API_BASE}/api/group/user/${currentUserId}`, { headers: authHeader })
-          .then((r) => {
-            if (mounted) setGroups(r.data);
-          })
-          .catch(() => {});
-      });
-    return () => (mounted = false);
-  }, [currentUserId]);
-
-  useEffect(() => {
-    if (!selectedGroup) return setMessages([]);
-    socket.emit("joinGroup", selectedGroup._id);
-    axios
-      .get(`${API_BASE}/api/group/${selectedGroup._id}/messages`, { headers: authHeader })
-      .then((res) => setMessages(res.data))
-      .catch(() => setMessages([]));
-    return () => socket.emit("leaveGroup", selectedGroup._id);
-  }, [selectedGroup]);
-
-  useEffect(() => {
-    function handleGroupMessage(msg) {
-      if (
-        msg.groupId === selectedGroup?._id ||
-        String(msg.group) === String(selectedGroup?._id)
-      ) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            _id: msg._id || Math.random().toString(36).slice(2),
-            sender: msg.sender || msg.senderId,
-            message: msg.message,
-            createdAt: msg.createdAt || new Date(),
-          },
-        ]);
+    socketRef.current.on("typing", (data) => {
+      if (data.username !== username) {
+        setTypingUsers((prev) =>
+          prev.includes(data.username) ? prev : [...prev, data.username]
+        );
       }
-    }
-    socket.on("groupMessage", handleGroupMessage);
-    return () => socket.off("groupMessage", handleGroupMessage);
-  }, [selectedGroup]);
+    });
 
+    socketRef.current.on("stopTyping", (data) => {
+      setTypingUsers((prev) => prev.filter((u) => u !== data.username));
+    });
+
+    socketRef.current.on("onlineUsers", (users) => {
+      setOnlineUsers(users);
+    });
+
+    return () => {
+      socketRef.current.disconnect();
+    };
+  }, [token, username]);
+
+  // ✅ Fetch all messages from backend
   useEffect(() => {
-    if (chatEndRef.current)
-      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    if (!token) return;
+
+    const fetchMessages = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/api/messages`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setMessages(res.data);
+      } catch (err) {
+        console.error("Error fetching messages:", err);
+      }
+    };
+    fetchMessages();
+  }, [token]);
+
+  // ✅ Scroll to bottom when messages update
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const sendMessage = () => {
-    if (!input.trim() || !selectedGroup) return;
-    socket.emit("groupMessage", {
-      groupId: selectedGroup._id,
-      message: input.trim(),
-    });
-    setInput("");
+  const handleTyping = () => {
+    socketRef.current.emit("typing", { username });
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      socketRef.current.emit("stopTyping", { username });
+    }, 1500);
   };
 
-  function formatTime(when) {
-    return new Date(when).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
+  const handleFileChange = (e) => {
+    setFile(e.target.files[0]);
+  };
 
-  const handleDeleteGroup = async () => {
-    if (window.confirm("Delete group and ALL its messages?")) {
-      await axios.delete(`${API_BASE}/api/group/${selectedGroup._id}`, {
-        headers: authHeader,
+  // ✅ Upload & send file
+  const sendFile = async () => {
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await axios.post(`${API_URL}/api/upload`, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+          Authorization: `Bearer ${token}`,
+        },
       });
-      setGroups(groups.filter((g) => g._id !== selectedGroup._id));
-      setSelectedGroup(null);
+
+      const fileMessage = {
+        userId,
+        username,
+        content: "",
+        fileUrl: res.data.fileUrl,
+        createdAt: new Date().toISOString(),
+      };
+
+      socketRef.current.emit("chatMessage", fileMessage);
+      setFile(null);
+    } catch (err) {
+      console.error("File upload failed", err);
     }
   };
-  const handleLeaveGroup = async () => {
-    if (window.confirm("Are you sure you want to exit this group?")) {
-      await axios.post(
-        `${API_BASE}/api/group/${selectedGroup._id}/leave`,
-        {},
-        { headers: authHeader }
-      );
-      setGroups(groups.filter((g) => g._id !== selectedGroup._id));
-      setSelectedGroup(null);
+
+  // ✅ Send text message
+  const sendMessage = () => {
+    if (!message.trim()) return;
+
+    const messageData = {
+      userId,
+      username,
+      content: message.trim(),
+      createdAt: new Date().toISOString(), // ✅ use createdAt instead of timestamp
+    };
+
+    socketRef.current.emit("chatMessage", messageData);
+    setMessage("");
+    socketRef.current.emit("stopTyping", { username });
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
     }
   };
 
   return (
-    <Box
-      sx={{
-        height: "100vh",
-        display: "flex",
-        fontFamily: "'Poppins',sans-serif",
-        color: "#fff",
-        position: "relative",
-        overflow: "hidden",
-      }}
-    >
-      {/* BG Particles */}
+    <Box sx={{ position: "relative", height: "100vh", overflow: "hidden" }}>
+      {/* Particle background */}
       <Particles
         id="tsparticles"
         init={particlesInit}
         options={{
-          fullScreen: { enable: false },
+          fullScreen: { enable: true, zIndex: -1 },
           background: { color: { value: "#191931" } },
           fpsLimit: 60,
           particles: {
@@ -212,450 +187,1217 @@ const GroupChatPage = ({ currentUserId, currentUsername, currentUserPhoto }) => 
           },
           detectRetina: true,
         }}
-        style={{
-          position: "absolute",
-          width: "100vw",
-          height: "100vh",
-          left: 0,
-          top: 0,
-          zIndex: 0,
-        }}
       />
 
-      {/* SIDEBAR */}
-      <Box
-        width={260}
-        bgcolor="#130f25"
-        sx={{
-          borderRight: "2px solid #27175c",
-          py: 2,
-          px: 1,
-          zIndex: 2,
-          position: "relative",
-        }}
-      >
-        <div style={{ textAlign: "center", marginBottom: 16 }}>
-          <h2
-            style={{
-              margin: 0,
-              fontWeight: 800,
-              fontSize: 23,
-              color: "#b68bff",
-            }}
-          >
-            Group Chats
-          </h2>
-          <Button
-            onClick={openDialog}
-            variant="contained"
-            sx={{ mt: 2, mb: 2, bgcolor: "#7d5fff", width: "100%" }}
-          >
-            + CREATE
-          </Button>
-        </div>
-        <div style={{ padding: "0 5px" }}>
-          <ul style={{ listStyle: "none", paddingLeft: 0 }}>
-            {groups.map((g) => (
-              <li
-                key={g._id}
-                onClick={() => setSelectedGroup(g)}
-                style={{
-                  fontWeight: selectedGroup?._id === g._id ? "bold" : 500,
-                  background:
-                    selectedGroup?._id === g._id ? "#22193c" : undefined,
-                  borderRadius: 8,
-                  marginBottom: 2,
-                  padding: "9px 13px",
-                  cursor: "pointer",
-                }}
-              >
-                #{g.name}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </Box>
-
-      {/* CHAT PANEL */}
-      <Box
-        flex={1}
-        display="flex"
-        flexDirection="column"
-        alignItems="center"
-        justifyContent="center"
-        sx={{ minHeight: 0, zIndex: 2, position: "relative" }}
-      >
-        {selectedGroup ? (
-          <Box
-            display="flex"
-            flexDirection="column"
-            width="100%"
-            maxWidth={CHAT_WIDTH}
-            height="78vh"
-            minHeight={480}
-            overflow="hidden"
+      <Grid container justifyContent="center" alignItems="center" sx={{ height: "100vh" }}>
+        <Grid item xs={12} md={10} lg={8}>
+          <Paper
+            elevation={24}
             sx={{
-              background:
-                "linear-gradient(120deg, #221941e6 60%, #1b1838e0 100%)",
-              borderRadius: 16,
-              boxShadow: "0 8px 42px 0 #0002",
-              mt: 3,
-              mb: 3,
-              zIndex: 3,
+              display: "flex",
+              p: 0,
+              borderRadius: 4,
+              height: isMobile ? "94vh" : 620,
+              minHeight: isMobile ? "auto" : 620,
+              maxHeight: 700,
+              bgcolor: "rgba(28,30,43,0.97)",
+              overflow: "hidden",
+              boxShadow: "0 6px 48px #000a",
             }}
           >
-            {/* Group Header */}
+            {/* Sidebar */}
             <Box
               sx={{
+                width: { xs: 120, sm: 190 },
+                flexShrink: 0,
+                bgcolor: "#222849",
+                py: 3,
+                px: { xs: 1, sm: 2 },
                 display: "flex",
+                flexDirection: "column",
                 alignItems: "center",
-                justifyContent: "space-between",
-                px: 2,
-                py: 2,
-                background: "transparent",
-                borderBottom: "1px solid #27175c",
-                borderRadius: "16px 16px 0 0",
-                minHeight: 56,
+                borderRight: "2px solid #373e69",
+                minHeight: "100%",
               }}
             >
-              {/* Left: Group name and members */}
-              <Box flex={1} minWidth={0} sx={{ overflow: "hidden" }}>
-                <div
-                  style={{
-                    fontWeight: 800,
-                    fontSize: 22,
-                    color: "#d4bcff",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    marginBottom: 1,
-                  }}
-                >
-                  {selectedGroup.name}
-                </div>
-                <div style={{ color: "#bdb9d1", fontSize: 13, fontWeight: 500 }}>
-                  Members: {selectedGroup.members?.length || 0}
-                </div>
-              </Box>
-              {/* Right: Exit/Delete button */}
-              <Box pl={2} flexShrink={0}>
-                {(selectedGroup?.creator && selectedGroup?.creator._id
-                  ? String(selectedGroup?.creator._id)
-                  : String(selectedGroup?.creator)) === String(currentUserId)
-                ? (
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    color="error"
-                    onClick={handleDeleteGroup}
+              <Typography variant="h6" sx={{ color: "#cbbcff", mb: 2, letterSpacing: 1 }}>
+                Online Users
+              </Typography>
+              {onlineUsers.length === 0 ? (
+                <Typography color="#7a859b" fontSize={14} align="center" mt={1}>
+                  No one online
+                </Typography>
+              ) : (
+                onlineUsers.map((user) => (
+                  <Box
+                    key={user.id}
                     sx={{
-                      fontWeight: 800,
-                      px: 2.5,
-                      borderRadius: 2,
-                      letterSpacing: 1,
-                      color: "#ff93a3",
-                      borderColor: "#ff93a3"
+                      display: "flex",
+                      alignItems: "center",
+                      mb: 2,
+                      p: 1,
+                      borderRadius: 3,
+                      bgcolor: user.id === userId ? "#7f5af0" : "transparent",
+                      width: "100%",
+                      transition: "background-color 0.3s",
                     }}
                   >
-                    DELETE
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    color="warning"
-                    onClick={handleLeaveGroup}
-                    sx={{
-                      fontWeight: 800,
-                      px: 3,
-                      borderRadius: 2,
-                      letterSpacing: 1,
-                      color: "#ebae53",
-                      borderColor: "#ebae53"
-                    }}
-                  >
-                    EXIT
-                  </Button>
-                )}
-              </Box>
+                    <Avatar
+                      sx={{
+                        bgcolor: user.id === userId ? "#ffd166" : "#2ec4b6",
+                        fontWeight: "bold",
+                        mr: 1.5,
+                        width: 34,
+                        height: 34,
+                        fontSize: 17,
+                        color: "#21213a",
+                      }}
+                    >
+                      {user.username.charAt(0).toUpperCase()}
+                    </Avatar>
+                    <Typography sx={{ color: "#f8fafc", fontWeight: user.id === userId ? 700 : 400 }}>
+                      {user.username} {user.id === userId ? "(You)" : ""}
+                    </Typography>
+                  </Box>
+                ))
+              )}
             </Box>
 
-            {/* Messages */}
+            {/* Chat Main */}
             <Box
-              flex={1}
-              display="flex"
-              flexDirection="column"
-              justifyContent="flex-end"
-              style={{
-                overflowY: "auto",
-                minHeight: 0,
-                margin: "0 18px",
-                background: "inherit",
+              sx={{
+                flex: 1,
+                p: { xs: 1, sm: 2 },
+                display: "flex",
+                flexDirection: "column",
+                height: "100%",
+                justifyContent: "space-between",
               }}
             >
-              {messages.map((m, idx) => {
-                const senderId = m.sender?._id
-                  ? String(m.sender._id)
-                  : m.sender?.id
-                  ? String(m.sender.id)
-                  : String(m.sender);
-                const senderName = m.sender?.username || currentUsername;
-                const isCurrentUser = senderId === String(currentUserId);
+              {/* Header */}
+              <Typography
+                variant="h5"
+                align="center"
+                sx={{ color: "#dde6f2", mt: 1, mb: 1, letterSpacing: 1.5 }}
+              >
+                Chat Room
+              </Typography>
 
-                return (
-                  <Box
-                    key={idx}
-                    display="flex"
-                    justifyContent={
-                      isCurrentUser ? "flex-end" : "flex-start"
-                    }
-                    width="100%"
-                    mb={1.5}
-                  >
+              {/* Messages */}
+              <Box
+                sx={{
+                  flexGrow: 1,
+                  overflowY: "auto",
+                  mb: 2,
+                  px: 1,
+                  bgcolor: "rgba(22,25,44,0.94)",
+                  borderRadius: 3,
+                  boxShadow: "inset 0 2px 18px #2d274d",
+                  scrollBehavior: "smooth",
+                }}
+              >
+                {messages.map((msg, idx) => {
+                  const prevMsg = idx > 0 ? messages[idx - 1] : null;
+                  const isSameUser = prevMsg && prevMsg.userId === msg.userId;
+                  const timeDiff = prevMsg
+                    ? new Date(msg.createdAt).getTime() - new Date(prevMsg.createdAt).getTime()
+                    : null;
+                  const withinFiveMinutes = timeDiff !== null && timeDiff < 5 * 60 * 1000;
+                  const hideHeader = isSameUser && withinFiveMinutes;
+
+                  const sent = msg.userId === userId;
+                  return (
                     <Box
+                      key={idx}
+                      mb={hideHeader ? 0.4 : 1.2}
+                      mt={hideHeader ? 0 : 1.2}
                       display="flex"
-                      flexDirection={
-                        isCurrentUser ? "row-reverse" : "row"
-                      }
-                      alignItems="flex-end"
-                      maxWidth="75%"
+                      justifyContent={sent ? "flex-end" : "flex-start"}
                     >
-                      {/* Avatar */}
-                      <Avatar
-                        src={isCurrentUser ? currentUserPhoto : ""}
-                        sx={{
-                          width: 34,
-                          height: 34,
-                          fontSize: 15,
-                          ml: isCurrentUser ? 1 : 0,
-                          mr: !isCurrentUser ? 1 : 0,
-                          bgcolor: isCurrentUser
-                            ? "#7d5fff"
-                            : getColor(senderName),
-                        }}
-                      >
-                        {(
-                          isCurrentUser ? currentUsername : senderName
-                        )
-                          ?.charAt(0)
-                          .toUpperCase()}
-                      </Avatar>
-
-                      {/* Message bubble */}
                       <Box
                         sx={{
-                          background: "#191931",
-                          color: "#dbeafe",
-                          borderRadius: 7,
-                          px: 2,
-                          py: 1,
-                          fontSize: 16,
-                          maxWidth: 340,
-                          wordBreak: "break-word",
-                          boxShadow:
-                            "0 2px 14px 0 #0a152cbb",
+                          backgroundColor: sent
+                            ? "linear-gradient(135deg, #689cf0 80%, #7f5af0 100%)"
+                            : "#191931",
+                          color: sent ? "#fff" : "#dbeafe",
+                          p: { xs: 1, sm: 2 },
+                          borderRadius: 5,
+                          boxShadow: sent
+                            ? "0 2px 18px 0 #7f5af0bb"
+                            : "0 2px 14px 0 #0a152cbb",
+                          minWidth: 110,
+                          maxWidth: { xs: "70%", sm: "66%" },
+                          transition: "box-shadow 0.15s",
                         }}
                       >
-                        <div
-                          style={{
-                            fontWeight: 700,
-                            color: isCurrentUser
-                              ? "#ffd166"
-                              : "#62d6e8",
-                            fontSize: 15,
-                            marginBottom: 3,
-                          }}
-                        >
-                          {isCurrentUser ? "You" : senderName}
-                        </div>
-                        <div style={{ whiteSpace: "pre-wrap" }}>
-                          {m.message}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 12,
-                            color: "#b8bfff",
-                            marginTop: 3,
-                            textAlign: "right",
-                            opacity: 0.7,
-                          }}
-                        >
-                          {m.createdAt ? formatTime(m.createdAt) : ""}
-                        </div>
+                        {!hideHeader && (
+                          <Typography
+                            variant="subtitle1"
+                            fontWeight="bold"
+                            sx={sent ? { color: "#ffd166", mb: 0.5 } : { color: "#62d6e8", mb: 0.5 }}
+                          >
+                            {sent ? "You" : msg.username || msg.userId}
+                          </Typography>
+                        )}
+                        {msg.fileUrl ? (
+                          msg.fileUrl.match(/\.(jpeg|jpg|png|gif|bmp|webp)$/i) ? (
+                            <a
+                              href={`${API_URL}${msg.fileUrl}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ wordBreak: "break-word", color: "inherit" }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <img
+                                src={`${API_URL}${msg.fileUrl}`}
+                                alt={msg.fileUrl.split("/").pop()}
+                                style={{
+                                  maxWidth: "96%",
+                                  maxHeight: 210,
+                                  borderRadius: 9,
+                                  boxShadow: "0 1px 12px #000b",
+                                }}
+                              />
+                            </a>
+                          ) : (
+                            <a
+                              href={`${API_URL}${msg.fileUrl}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                wordBreak: "break-word",
+                                textDecoration: "underline",
+                                color: "#ffd166",
+                                fontWeight: 600,
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {msg.fileUrl.split("/").pop()}
+                            </a>
+                          )
+                        ) : (
+                          <Typography sx={{ fontSize: 16, fontWeight: 500, py: 0.5 }}>
+                            {msg.content}
+                          </Typography>
+                        )}
+                        {!hideHeader && (
+                          <Typography
+                            variant="caption"
+                            sx={{ opacity: 0.7, mt: 1, color: "#b8bfff", display: "block" }}
+                          >
+                            {msg.createdAt
+                              ? new Date(msg.createdAt).toLocaleTimeString([], {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })
+                              : ""}
+                          </Typography>
+                        )}
                       </Box>
                     </Box>
-                  </Box>
-                );
-              })}
-              <div ref={chatEndRef} />
-            </Box>
+                  );
+                })}
+                {typingUsers.length > 0 && (
+                  <Typography variant="caption" color="#dbeafe" sx={{ mb: 1 }}>
+                    {typingUsers.join(", ")} {typingUsers.length > 1 ? "are" : "is"} typing...
+                  </Typography>
+                )}
+                <div ref={messagesEndRef} />
+              </Box>
 
-            {/* Input */}
-            <Box
-              p={2}
-              bgcolor="transparent"
-              display="flex"
-              flexDirection="row"
-              alignItems="center"
-              gap={1}
-              style={{ width: "98%", maxWidth: 420, margin: "0 auto" }}
-            >
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-                placeholder="Type your message..."
-                style={{
-                  flex: 1,
-                  padding: "11px 18px",
-                  border: "none",
-                  borderRadius: 10,
-                  fontSize: 17,
-                  background: "#211b32",
-                  color: "#fff",
-                  outline: "none",
-                  marginRight: 8,
-                  fontFamily: "inherit",
-                }}
-              />
-              <Button
-                onClick={sendMessage}
-                variant="contained"
-                sx={{
-                  height: 48,
-                  px: 3.5,
-                  borderRadius: 8,
-                  fontWeight: 700,
-                  ml: 1.5,
-                  bgcolor: "#7d5fff",
-                }}
-              >
-                SEND
-              </Button>
-            </Box>
-          </Box>
-        ) : (
-          <Box
-            flex={1}
-            display="flex"
-            alignItems="center"
-            justifyContent="center"
-          >
-            <p
-              style={{
-                color: "#aaa",
-                fontSize: 23,
-                fontWeight: 500,
-                background: "rgba(39,25,79,0.12)",
-                padding: 28,
-                borderRadius: 14,
-              }}
-            >
-              Select a group to view and send messages.
-            </p>
-          </Box>
-        )}
-      </Box>
-
-      {/* Create Group Dialog */}
-      <Dialog
-        open={dialogOpen}
-        onClose={closeDialog}
-        PaperProps={{
-          style: {
-            background: "#1a152e",
-            color: "#fff",
-            borderRadius: 16,
-            minWidth: 385,
-          },
-        }}
-      >
-        <DialogTitle sx={{ color: "#eee" }}>Create New Group</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Group Name"
-            type="text"
-            fullWidth
-            value={groupName}
-            variant="outlined"
-            onChange={(e) => setGroupName(e.target.value)}
-            sx={{
-              mb: 2,
-              input: { color: "#eee" },
-              label: { color: "#ccc" },
-            }}
-          />
-          <div style={{ marginTop: 10 }}>
-            <div
-              style={{
-                fontWeight: 600,
-                marginBottom: 8,
-                color: "#caacfc",
-              }}
-            >
-              Select online users:
-            </div>
-            {onlineUsers.length === 0 && (
-              <div style={{ color: "#bbb" }}>No other users online.</div>
-            )}
-            {onlineUsers.map((user) => (
-              <label
-                key={user.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  margin: "7px 0",
-                  fontSize: 15,
-                }}
-              >
-                <Avatar
-                  src={user.profilePhoto}
+              {/* File Upload & Input */}
+              <Box display="flex" alignItems="center" gap={1} pb={1} pt={0.5}>
+                <IconButton
+                  color="primary"
+                  component="label"
                   sx={{
-                    width: 28,
-                    height: 28,
-                    fontSize: 13,
-                    bgcolor: getColor(user.username),
-                    mr: 1,
+                    bgcolor: "#ffd166",
+                    "&:hover": { bgcolor: "#62d6e8" },
+                    color: "#21213a",
+                    fontSize: 22,
                   }}
                 >
-                  {user.username?.charAt(0).toUpperCase()}
-                </Avatar>
-                <input
-                  type="checkbox"
-                  value={user.id}
-                  checked={selectedUsers.includes(user.id)}
-                  onChange={(e) => {
-                    if (e.target.checked)
-                      setSelectedUsers([...selectedUsers, user.id]);
-                    else
-                      setSelectedUsers(
-                        selectedUsers.filter((id) => id !== user.id)
-                      );
+                  <AttachFileIcon />
+                  <input type="file" hidden onChange={handleFileChange} />
+                </IconButton>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  disabled={!file}
+                  onClick={sendFile}
+                  sx={{
+                    fontWeight: 600,
+                    py: 1.1,
+                    bgcolor: "#62d6e8",
+                    color: "#111938",
+                    "&:hover": { bgcolor: "#ffd166", color: "#222" },
                   }}
-                  style={{ marginRight: 7 }}
+                >
+                  Send File
+                </Button>
+                <TextField
+                  multiline
+                  minRows={2}
+                  maxRows={5}
+                  placeholder="Type your message..."
+                  value={message}
+                  onChange={(e) => {
+                    setMessage(e.target.value);
+                    handleTyping();
+                  }}
+                  onKeyDown={handleKeyPress}
+                  fullWidth
+                  sx={{
+                    bgcolor: "#222849",
+                    borderRadius: 2.5,
+                    input: { color: "#e0e7ff", fontSize: 16 },
+                  }}
                 />
-                {user.username}
-              </label>
-            ))}
-          </div>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeDialog} sx={{ color: "#b392f7" }}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleCreateGroup}
-            variant="contained"
-            sx={{ bgcolor: "#7d5fff" }}
-          >
-            Create
-          </Button>
-        </DialogActions>
-      </Dialog>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  disabled={!message.trim()}
+                  onClick={sendMessage}
+                  sx={{
+                    fontWeight: 700,
+                    py: 1.1,
+                    bgcolor: "#7f5af0",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "#62d6e8", color: "#1e2036" },
+                  }}
+                >
+                  Send
+                </Button>
+              </Box>
+            </Box>
+          </Paper>
+        </Grid>
+      </Grid>
     </Box>
   );
-};
+}
 
-export default GroupChatPage;
+export default Chat;
+
+
+// import React, { useState, useEffect, useRef, useCallback } from 'react';
+// import {
+//   Box,
+//   Typography,
+//   TextField,
+//   Button,
+//   Paper,
+//   IconButton,
+//   Grid,
+//   Avatar,
+//   useTheme,
+//   useMediaQuery,
+// } from '@mui/material';
+// import AttachFileIcon from '@mui/icons-material/AttachFile';
+// import Particles from 'react-tsparticles';
+// import { loadFull } from 'tsparticles';
+// import io from 'socket.io-client';
+// import axios from 'axios';
+
+// const token = localStorage.getItem('token');
+// const socket = io('http://localhost:5000', { auth: { token } });
+
+// function Chat({ userId, username }) {
+//   const theme = useTheme();
+//   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+//   const [message, setMessage] = useState('');
+//   const [messages, setMessages] = useState([]);
+//   const [file, setFile] = useState(null);
+//   const [typingUsers, setTypingUsers] = useState([]);
+//   const [onlineUsers, setOnlineUsers] = useState([]);
+//   const messagesEndRef = useRef(null);
+//   const typingTimeoutRef = useRef();
+
+//   const particlesInit = useCallback(async (engine) => {
+//     await loadFull(engine);
+//   }, []);
+
+//   // Fetch all chat messages once at mount
+//   useEffect(() => {
+//     if (!token) return;
+//     const fetchMessages = async () => {
+//       try {
+//         const res = await axios.get('http://localhost:5000/api/messages', {
+//           headers: { Authorization: `Bearer ${token}` },
+//         });
+//         setMessages(res.data);
+//       } catch (err) {
+//         console.error('Error fetching messages:', err);
+//       }
+//     };
+//     fetchMessages();
+//   }, []);
+
+//   // Socket events setup
+//   useEffect(() => {
+//     socket.on('chatMessage', (data) => {
+//       setMessages((prev) => {
+//         const isDuplicate = prev.some(
+//           (msg) =>
+//             msg.content === data.content &&
+//             new Date(msg.timestamp).getTime() === new Date(data.timestamp).getTime() &&
+//             msg.userId === data.userId
+//         );
+//         if (isDuplicate) return prev;
+//         return [...prev, data];
+//       });
+//     });
+
+//     socket.on('typing', (data) => {
+//       setTypingUsers((prev) => {
+//         if (!prev.includes(data.username) && data.username !== username) {
+//           return [...prev, data.username];
+//         }
+//         return prev;
+//       });
+//     });
+
+//     socket.on('stopTyping', (data) => {
+//       setTypingUsers((prev) => prev.filter((u) => u !== data.username));
+//     });
+
+//     socket.on('onlineUsers', (users) => {
+//       setOnlineUsers(users);
+//     });
+
+//     return () => {
+//       socket.off('chatMessage');
+//       socket.off('typing');
+//       socket.off('stopTyping');
+//       socket.off('onlineUsers');
+//     };
+//   }, [username]);
+
+//   // Scroll to bottom on new messages
+//   useEffect(() => {
+//     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+//   }, [messages]);
+
+//   const handleTyping = () => {
+//     socket.emit('typing', { username });
+//     clearTimeout(typingTimeoutRef.current);
+//     typingTimeoutRef.current = setTimeout(() => {
+//       socket.emit('stopTyping', { username });
+//     }, 1500);
+//   };
+
+//   const handleFileChange = (e) => {
+//     setFile(e.target.files[0]);
+//   };
+
+//   const sendFile = async () => {
+//     if (!file) return;
+//     const formData = new FormData();
+//     formData.append('file', file);
+
+//     try {
+//       const res = await axios.post('http://localhost:5000/api/upload', formData, {
+//         headers: {
+//           'Content-Type': 'multipart/form-data',
+//           Authorization: `Bearer ${token}`,
+//         },
+//       });
+
+//       const fileMessage = {
+//         userId,
+//         username,
+//         content: '',
+//         fileUrl: res.data.fileUrl,
+//         timestamp: new Date().toISOString(),
+//       };
+
+//       socket.emit('chatMessage', fileMessage);
+//       setFile(null);
+//     } catch (err) {
+//       console.error('File upload failed', err);
+//     }
+//   };
+
+//   const sendMessage = () => {
+//     if (!message.trim()) return;
+//     const messageData = {
+//       userId,
+//       username,
+//       content: message.trim(),
+//       timestamp: new Date().toISOString(),
+//     };
+//     socket.emit('chatMessage', messageData);
+//     setMessage('');
+//     socket.emit('stopTyping', { username });
+//   };
+
+//   const handleKeyPress = (e) => {
+//     if (e.key === 'Enter' && !e.shiftKey) {
+//       e.preventDefault();
+//       sendMessage();
+//     }
+//   };
+
+//   return (
+//     <Box sx={{ position: 'relative', height: '100vh', overflow: 'hidden' }}>
+//       {/* Particle background for style */}
+//       <Particles
+//         id="tsparticles"
+//         init={particlesInit}
+//         options={{
+//           fullScreen: { enable: true, zIndex: -1 },
+//           background: { color: { value: "#191931" } },
+//           fpsLimit: 60,
+//           particles: {
+//             number: { value: 70, density: { enable: true, area: 800 } },
+//             color: { value: ["#62d6e8", "#9867f0", "#ffd166"] },
+//             shape: { type: "circle" },
+//             opacity: { value: 0.65, random: true },
+//             size: { value: 3, random: true },
+//             move: { enable: true, speed: 2, outModes: 'bounce' },
+//             links: {
+//               enable: true,
+//               distance: 110,
+//               color: "#a3a3ff",
+//               opacity: 0.25,
+//               width: 2,
+//             },
+//           },
+//           interactivity: {
+//             events: { onHover: { enable: true, mode: "repulse" } },
+//             modes: { repulse: { distance: 100 } },
+//           },
+//           detectRetina: true,
+//         }}
+//       />
+
+//       <Grid container justifyContent="center" alignItems="center" sx={{ height: '100vh' }}>
+//         <Grid item xs={12} md={10} lg={8}>
+//           <Paper
+//             elevation={24}
+//             sx={{
+//               display: 'flex',
+//               p: 0,
+//               borderRadius: 4,
+//               height: isMobile ? '94vh' : 620,
+//               minHeight: isMobile ? 'auto' : 620,
+//               maxHeight: 700,
+//               bgcolor: 'rgba(28,30,43,0.97)',
+//               overflow: 'hidden',
+//               boxShadow: '0 6px 48px #000a',
+//             }}
+//           >
+//             {/* Sidebar */}
+//             <Box
+//               sx={{
+//                 width: { xs: 120, sm: 190 },
+//                 flexShrink: 0,
+//                 bgcolor: '#222849',
+//                 py: 3,
+//                 px: { xs: 1, sm: 2 },
+//                 display: 'flex',
+//                 flexDirection: 'column',
+//                 alignItems: 'center',
+//                 borderRight: '2px solid #373e69',
+//                 minHeight: '100%',
+//               }}
+//             >
+//               <Typography variant="h6" sx={{ color: '#cbbcff', mb: 2, letterSpacing: 1 }}>
+//                 Online Users
+//               </Typography>
+//               {onlineUsers.length === 0 ? (
+//                 <Typography color="#7a859b" fontSize={14} align="center" mt={1}>
+//                   No one online
+//                 </Typography>
+//               ) : (
+//                 onlineUsers.map((user) => (
+//                   <Box
+//                     key={user.id}
+//                     sx={{
+//                       display: 'flex',
+//                       alignItems: 'center',
+//                       mb: 2,
+//                       p: 1,
+//                       borderRadius: 3,
+//                       bgcolor: user.id === userId ? '#7f5af0' : 'transparent',
+//                       width: '100%',
+//                       transition: 'background-color 0.3s',
+//                     }}
+//                   >
+//                     <Avatar
+//                       sx={{
+//                         bgcolor: user.id === userId ? '#ffd166' : '#2ec4b6',
+//                         fontWeight: 'bold',
+//                         mr: 1.5,
+//                         width: 34,
+//                         height: 34,
+//                         fontSize: 17,
+//                         color: '#21213a',
+//                       }}
+//                     >
+//                       {user.username.charAt(0).toUpperCase()}
+//                     </Avatar>
+//                     <Typography sx={{ color: '#f8fafc', fontWeight: user.id === userId ? 700 : 400 }}>
+//                       {user.username} {user.id === userId ? '(You)' : ''}
+//                     </Typography>
+//                   </Box>
+//                 ))
+//               )}
+//             </Box>
+//             {/* Chat Main */}
+//             <Box
+//               sx={{
+//                 flex: 1,
+//                 p: { xs: 1, sm: 2 },
+//                 display: 'flex',
+//                 flexDirection: 'column',
+//                 height: '100%',
+//                 justifyContent: 'space-between',
+//               }}
+//             >
+//               {/* Header */}
+//               <Typography
+//                 variant="h5"
+//                 align="center"
+//                 sx={{ color: '#dde6f2', mt: 1, mb: 1, letterSpacing: 1.5 }}
+//               >
+//                 Chat Room
+//               </Typography>
+
+//               {/* Messages */}
+//               <Box
+//                 sx={{
+//                   flexGrow: 1,
+//                   overflowY: 'auto',
+//                   mb: 2,
+//                   px: 1,
+//                   bgcolor: 'rgba(22,25,44,0.94)',
+//                   borderRadius: 3,
+//                   boxShadow: 'inset 0 2px 18px #2d274d',
+//                   scrollBehavior: 'smooth',
+//                 }}
+//               >
+//                 {messages.map((msg, idx) => {
+//                   const prevMsg = idx > 0 ? messages[idx - 1] : null;
+//                   const isSameUser = prevMsg && prevMsg.userId === msg.userId;
+//                   const timeDiff = prevMsg
+//                     ? new Date(msg.timestamp).getTime() - new Date(prevMsg.timestamp).getTime()
+//                     : null;
+//                   const withinFiveMinutes = timeDiff !== null && timeDiff < 5 * 60 * 1000;
+//                   const hideHeader = isSameUser && withinFiveMinutes;
+
+//                   const sent = msg.userId === userId;
+//                   return (
+//                     <Box
+//                       key={idx}
+//                       mb={hideHeader ? 0.4 : 1.2}
+//                       mt={hideHeader ? 0 : 1.2}
+//                       display="flex"
+//                       justifyContent={sent ? 'flex-end' : 'flex-start'}
+//                     >
+//                       <Box
+//                         sx={{
+//                           backgroundColor: sent ? 'linear-gradient(135deg, #689cf0 80%, #7f5af0 100%)' : '#191931',
+//                           color: sent ? '#fff' : '#dbeafe',
+//                           p: { xs: 1, sm: 2 },
+//                           borderRadius: 5,
+//                           boxShadow: sent
+//                             ? '0 2px 18px 0 #7f5af0bb'
+//                             : '0 2px 14px 0 #0a152cbb',
+//                           minWidth: 110,
+//                           maxWidth: { xs: '70%', sm: '66%' },
+//                           transition: 'box-shadow 0.15s',
+//                         }}
+//                       >
+//                         {!hideHeader && (
+//                           <Typography
+//                             variant="subtitle1"
+//                             fontWeight="bold"
+//                             sx={
+//                               sent ? { color: '#ffd166', mb: 0.5 } : { color: '#62d6e8', mb: 0.5 }
+//                             }
+//                           >
+//                             {sent ? 'You' : msg.username || msg.userId}
+//                           </Typography>
+//                         )}
+//                         {msg.fileUrl ? (
+//                           msg.fileUrl.match(/\.(jpeg|jpg|png|gif|bmp|webp)$/i) ? (
+//                               <a
+//                                 href={`http://localhost:5000${msg.fileUrl}`}
+//                                 target="_blank"
+//                                 rel="noopener noreferrer"
+//                                 style={{ wordBreak: 'break-word', color: 'inherit' }}
+//                                 onClick={e => e.stopPropagation()}
+//                               >
+//                                 <img
+//                                   src={`http://localhost:5000${msg.fileUrl}`}
+//                                   alt={msg.fileUrl.split('/').pop()}
+//                                   style={{ maxWidth: '96%', maxHeight: 210, borderRadius: 9, boxShadow: '0 1px 12px #000b' }}
+//                                 />
+//                               </a>
+//                             ) : (
+//                               <a
+//                                 href={`http://localhost:5000${msg.fileUrl}`}
+//                                 target="_blank"
+//                                 rel="noopener noreferrer"
+//                                 style={{
+//                                   wordBreak: 'break-word',
+//                                   textDecoration: 'underline',
+//                                   color: '#ffd166',
+//                                   fontWeight: 600,
+//                                 }}
+//                                 onClick={e => e.stopPropagation()}
+//                               >
+//                                 {msg.fileUrl.split('/').pop()}
+//                               </a>
+//                             )
+//                           ) : (
+//                             <Typography sx={{ fontSize: 16, fontWeight: 500, py: 0.5 }}>
+//                               {msg.content}
+//                             </Typography>
+//                           )}
+//                         {!hideHeader && (
+//                           <Typography variant="caption" sx={{ opacity: 0.7, mt: 1, color: '#b8bfff', display: 'block' }}>
+//                             {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+//                           </Typography>
+//                         )}
+//                       </Box>
+//                     </Box>
+//                   );
+//                 })}
+//                 {typingUsers.length > 0 && (
+//                   <Typography variant="caption" color="#dbeafe" sx={{ mb: 1 }}>
+//                     {typingUsers.join(', ')} {typingUsers.length > 1 ? 'are' : 'is'} typing...
+//                   </Typography>
+//                 )}
+//                 <div ref={messagesEndRef} />
+//               </Box>
+
+//               {/* File Upload and Message Input */}
+//               <Box display="flex" alignItems="center" gap={1} pb={1} pt={0.5}>
+//                 <IconButton
+//                   color="primary"
+//                   component="label"
+//                   sx={{
+//                     bgcolor: '#ffd166',
+//                     '&:hover': { bgcolor: '#62d6e8' },
+//                     color: '#21213a',
+//                     fontSize: 22,
+//                   }}
+//                 >
+//                   <AttachFileIcon />
+//                   <input type="file" hidden onChange={handleFileChange} />
+//                 </IconButton>
+//                 <Button
+//                   variant="contained"
+//                   color="primary"
+//                   disabled={!file}
+//                   onClick={sendFile}
+//                   sx={{ fontWeight: 600, py: 1.1, bgcolor: '#62d6e8', color: '#111938', '&:hover': { bgcolor: '#ffd166', color: '#222' } }}
+//                 >
+//                   Send File
+//                 </Button>
+//                 <TextField
+//                   multiline
+//                   minRows={2}
+//                   maxRows={5}
+//                   placeholder="Type your message..."
+//                   value={message}
+//                   onChange={(e) => {
+//                     setMessage(e.target.value);
+//                     handleTyping();
+//                   }}
+//                   onKeyDown={handleKeyPress}
+//                   fullWidth
+//                   sx={{
+//                     bgcolor: '#222849',
+//                     borderRadius: 2.5,
+//                     input: { color: '#e0e7ff', fontSize: 16 },
+//                   }}
+//                 />
+//                 <Button
+//                   variant="contained"
+//                   color="secondary"
+//                   disabled={!message.trim()}
+//                   onClick={sendMessage}
+//                   sx={{
+//                     fontWeight: 700,
+//                     py: 1.1,
+//                     bgcolor: '#7f5af0',
+//                     color: '#fff',
+//                     '&:hover': { bgcolor: '#62d6e8', color: '#1e2036' }
+//                   }}
+//                 >
+//                   Send
+//                 </Button>
+//               </Box>
+//             </Box>
+//           </Paper>
+//         </Grid>
+//       </Grid>
+//     </Box>
+//   );
+// }
+
+// export default Chat;
+
+// // // import React, { useState, useEffect, useRef, useCallback } from 'react';
+// // // import {
+// // //   Box,
+// // //   Typography,
+// // //   TextField,
+// // //   Button,
+// // //   Paper,
+// // //   IconButton,
+// // //   Grid,
+// // //   Avatar,
+// // //   useTheme,
+// // //   useMediaQuery,
+// // // } from '@mui/material';
+// // // import AttachFileIcon from '@mui/icons-material/AttachFile';
+// // // import Particles from 'react-tsparticles';
+// // // import { loadFull } from 'tsparticles';
+// // // import io from 'socket.io-client';
+// // // import axios from 'axios';
+
+// // // const token = localStorage.getItem('token');
+// // // const socket = io('http://localhost:5000', { auth: { token } });
+
+// // // function Chat({ userId, username }) {
+// // //   const theme = useTheme();
+// // //   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
+// // //   const [message, setMessage] = useState('');
+// // //   const [messages, setMessages] = useState([]);
+// // //   const [file, setFile] = useState(null);
+// // //   const [typingUsers, setTypingUsers] = useState([]);
+// // //   const [onlineUsers, setOnlineUsers] = useState([]);
+// // //   const messagesEndRef = useRef(null);
+// // //   const typingTimeoutRef = useRef();
+
+// // //   const particlesInit = useCallback(async (engine) => {
+// // //     await loadFull(engine);
+// // //   }, []);
+
+// // //   useEffect(() => {
+// // //     const fetchMessages = async () => {
+// // //       try {
+// // //         const res = await axios.get('http://localhost:5000/api/messages', {
+// // //           headers: { Authorization: `Bearer ${token}` },
+// // //         });
+// // //         setMessages(res.data);
+// // //       } catch (err) {
+// // //         console.error('Error fetching messages:', err);
+// // //       }
+// // //     };
+// // //     fetchMessages();
+// // //   }, []);
+
+// // //   useEffect(() => {
+// // //     socket.on('chatMessage', (data) => {
+// // //       setMessages((prev) => {
+// // //         const isDuplicate = prev.some(
+// // //           (msg) =>
+// // //             msg.content === data.content &&
+// // //             new Date(msg.timestamp).getTime() === new Date(data.timestamp).getTime() &&
+// // //             msg.userId === data.userId
+// // //         );
+// // //         if (isDuplicate) return prev;
+// // //         return [...prev, data];
+// // //       });
+// // //     });
+
+// // //     socket.on('typing', (data) => {
+// // //       setTypingUsers((prev) => {
+// // //         if (!prev.includes(data.username) && data.username !== username) {
+// // //           return [...prev, data.username];
+// // //         }
+// // //         return prev;
+// // //       });
+// // //     });
+
+// // //     socket.on('stopTyping', (data) => {
+// // //       setTypingUsers((prev) => prev.filter((u) => u !== data.username));
+// // //     });
+
+// // //     socket.on('onlineUsers', (users) => {
+// // //       setOnlineUsers(users);
+// // //     });
+
+// // //     return () => {
+// // //       socket.off('chatMessage');
+// // //       socket.off('typing');
+// // //       socket.off('stopTyping');
+// // //       socket.off('onlineUsers');
+// // //     };
+// // //   }, [username]);
+
+// // //   useEffect(() => {
+// // //     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+// // //   }, [messages]);
+
+// // //   const handleTyping = () => {
+// // //     socket.emit('typing', { username });
+// // //     clearTimeout(typingTimeoutRef.current);
+// // //     typingTimeoutRef.current = setTimeout(() => {
+// // //       socket.emit('stopTyping', { username });
+// // //     }, 1500);
+// // //   };
+
+// // //   const handleFileChange = (e) => {
+// // //     setFile(e.target.files[0]);
+// // //   };
+
+// // //   const sendFile = async () => {
+// // //     if (!file) return;
+// // //     const formData = new FormData();
+// // //     formData.append('file', file);
+
+// // //     try {
+// // //       const res = await axios.post('http://localhost:5000/api/upload', formData, {
+// // //         headers: {
+// // //           'Content-Type': 'multipart/form-data',
+// // //           Authorization: `Bearer ${token}`,
+// // //         },
+// // //       });
+
+// // //       const fileMessage = {
+// // //         userId,
+// // //         username,
+// // //         content: '',
+// // //         fileUrl: res.data.fileUrl,
+// // //         timestamp: new Date().toISOString(),
+// // //       };
+
+// // //       socket.emit('chatMessage', fileMessage);
+// // //       setFile(null);
+// // //     } catch (err) {
+// // //       console.error('File upload failed', err);
+// // //     }
+// // //   };
+
+// // //   const sendMessage = () => {
+// // //     if (!message.trim()) return;
+// // //     const messageData = {
+// // //       userId,
+// // //       username,
+// // //       content: message.trim(),
+// // //       timestamp: new Date().toISOString(),
+// // //     };
+// // //     socket.emit('chatMessage', messageData);
+// // //     setMessage('');
+// // //     socket.emit('stopTyping', { username });
+// // //   };
+
+// // //   const handleKeyPress = (e) => {
+// // //     if (e.key === 'Enter' && !e.shiftKey) {
+// // //       e.preventDefault();
+// // //       sendMessage();
+// // //     }
+// // //   };
+
+// // //   return (
+// // //     <Box sx={{ position: 'relative', height: '100vh', overflow: 'hidden' }}>
+// // //       {/* 3D Palette Particle Background */}
+// // //       <Particles
+// // //         id="tsparticles"
+// // //         init={particlesInit}
+// // //         options={{
+// // //           fullScreen: { enable: true, zIndex: -1 },
+// // //           background: { color: { value: "#191931" } },
+// // //           fpsLimit: 60,
+// // //           particles: {
+// // //             number: { value: 70, density: { enable: true, area: 800 } },
+// // //             color: { value: ["#62d6e8", "#9867f0", "#ffd166"] },
+// // //             shape: { type: "circle" },
+// // //             opacity: { value: 0.65, random: true },
+// // //             size: { value: 3, random: true },
+// // //             move: { enable: true, speed: 2, outModes: 'bounce' },
+// // //             links: {
+// // //               enable: true,
+// // //               distance: 110,
+// // //               color: "#a3a3ff",
+// // //               opacity: 0.25,
+// // //               width: 2,
+// // //             },
+// // //           },
+// // //           interactivity: {
+// // //             events: { onHover: { enable: true, mode: "repulse" } },
+// // //             modes: { repulse: { distance: 100 } },
+// // //           },
+// // //           detectRetina: true,
+// // //         }}
+// // //       />
+
+// // //       <Grid container justifyContent="center" alignItems="center" sx={{ height: '100vh' }}>
+// // //         <Grid item xs={12} md={10} lg={8}>
+// // //           <Paper
+// // //             elevation={24}
+// // //             sx={{
+// // //               display: 'flex',
+// // //               p: 0,
+// // //               borderRadius: 4,
+// // //               height: isMobile ? '94vh' : 620,
+// // //               minHeight: isMobile ? 'auto' : 620,
+// // //               maxHeight: 700,
+// // //               bgcolor: 'rgba(28,30,43,0.97)',
+// // //               overflow: 'hidden',
+// // //               boxShadow: '0 6px 48px #000a',
+// // //             }}
+// // //           >
+// // //             {/* Sidebar */}
+// // //             <Box
+// // //               sx={{
+// // //                 width: { xs: 120, sm: 190 },
+// // //                 flexShrink: 0,
+// // //                 bgcolor: '#222849',
+// // //                 py: 3,
+// // //                 px: { xs: 1, sm: 2 },
+// // //                 display: 'flex',
+// // //                 flexDirection: 'column',
+// // //                 alignItems: 'center',
+// // //                 borderRight: '2px solid #373e69',
+// // //                 minHeight: '100%',
+// // //               }}
+// // //             >
+// // //               <Typography variant="h6" sx={{ color: '#cbbcff', mb: 2, letterSpacing: 1 }}>
+// // //                 Online Users
+// // //               </Typography>
+// // //               {onlineUsers.length === 0 ? (
+// // //                 <Typography color="#7a859b" fontSize={14} align="center" mt={1}>
+// // //                   No one online
+// // //                 </Typography>
+// // //               ) : (
+// // //                 onlineUsers.map((user) => (
+// // //                   <Box
+// // //                     key={user.id}
+// // //                     sx={{
+// // //                       display: 'flex',
+// // //                       alignItems: 'center',
+// // //                       mb: 2,
+// // //                       p: 1,
+// // //                       borderRadius: 3,
+// // //                       bgcolor: user.id === userId ? '#7f5af0' : 'transparent',
+// // //                       width: '100%',
+// // //                       transition: 'background-color 0.3s',
+// // //                     }}
+// // //                   >
+// // //                     <Avatar
+// // //                       sx={{
+// // //                         bgcolor: user.id === userId ? '#ffd166' : '#2ec4b6',
+// // //                         fontWeight: 'bold',
+// // //                         mr: 1.5,
+// // //                         width: 34,
+// // //                         height: 34,
+// // //                         fontSize: 17,
+// // //                         color: '#21213a',
+// // //                       }}
+// // //                     >
+// // //                       {user.username.charAt(0).toUpperCase()}
+// // //                     </Avatar>
+// // //                     <Typography sx={{ color: '#f8fafc', fontWeight: user.id === userId ? 700 : 400 }}>
+// // //                       {user.username} {user.id === userId ? '(You)' : ''}
+// // //                     </Typography>
+// // //                   </Box>
+// // //                 ))
+// // //               )}
+// // //             </Box>
+
+// // //             {/* Chat Main */}
+// // //             <Box
+// // //               sx={{
+// // //                 flex: 1,
+// // //                 p: { xs: 1, sm: 2 },
+// // //                 display: 'flex',
+// // //                 flexDirection: 'column',
+// // //                 height: '100%',
+// // //                 justifyContent: 'space-between',
+// // //               }}
+// // //             >
+// // //               {/* Header */}
+// // //               <Typography
+// // //                 variant="h5"
+// // //                 align="center"
+// // //                 sx={{ color: '#dde6f2', mt: 1, mb: 1, letterSpacing: 1.5 }}
+// // //               >
+// // //                 Chat Room
+// // //               </Typography>
+
+// // //               {/* Messages */}
+// // //               <Box
+// // //                 sx={{
+// // //                   flexGrow: 1,
+// // //                   overflowY: 'auto',
+// // //                   mb: 2,
+// // //                   px: 1,
+// // //                   bgcolor: 'rgba(22,25,44,0.94)',
+// // //                   borderRadius: 3,
+// // //                   boxShadow: 'inset 0 2px 18px #2d274d',
+// // //                   scrollBehavior: 'smooth',
+// // //                 }}
+// // //               >
+// // //                 {messages.map((msg, idx) => {
+// // //                   const prevMsg = idx > 0 ? messages[idx - 1] : null;
+// // //                   const isSameUser = prevMsg && prevMsg.userId === msg.userId;
+// // //                   const timeDiff = prevMsg
+// // //                     ? new Date(msg.timestamp).getTime() - new Date(prevMsg.timestamp).getTime()
+// // //                     : null;
+// // //                   const withinFiveMinutes = timeDiff !== null && timeDiff < 5 * 60 * 1000;
+// // //                   const hideHeader = isSameUser && withinFiveMinutes;
+
+// // //                   const sent = msg.userId === userId;
+// // //                   return (
+// // //                     <Box
+// // //                       key={idx}
+// // //                       mb={hideHeader ? 0.4 : 1.2}
+// // //                       mt={hideHeader ? 0 : 1.2}
+// // //                       display="flex"
+// // //                       justifyContent={sent ? 'flex-end' : 'flex-start'}
+// // //                     >
+// // //                       <Box
+// // //                         sx={{
+// // //                           backgroundColor: sent ? 'linear-gradient(135deg, #689cf0 80%, #7f5af0 100%)' : '#191931',
+// // //                           color: sent ? '#fff' : '#dbeafe',
+// // //                           p: { xs: 1, sm: 2 },
+// // //                           borderRadius: 5,
+// // //                           boxShadow: sent
+// // //                             ? '0 2px 18px 0 #7f5af0bb'
+// // //                             : '0 2px 14px 0 #0a152cbb',
+// // //                           minWidth: 110,
+// // //                           maxWidth: { xs: '70%', sm: '66%' },
+// // //                           transition: 'box-shadow 0.15s',
+// // //                         }}
+// // //                       >
+// // //                         {!hideHeader && (
+// // //                           <Typography
+// // //                             variant="subtitle1"
+// // //                             fontWeight="bold"
+// // //                             sx={
+// // //                               sent ? { color: '#ffd166', mb: 0.5 } : { color: '#62d6e8', mb: 0.5 }
+// // //                             }
+// // //                           >
+// // //                             {sent ? 'You' : msg.username || msg.userId}
+// // //                           </Typography>
+// // //                         )}
+
+// // //                         {msg.fileUrl ? (
+// // //                           msg.fileUrl.match(/\.(jpeg|jpg|png|gif|bmp|webp)$/i) ? (
+// // //                             <a
+// // //                               href={`http://localhost:5000${msg.fileUrl}`}
+// // //                               target="_blank"
+// // //                               rel="noopener noreferrer"
+// // //                               style={{ wordBreak: 'break-word', color: 'inherit' }}
+// // //                               onClick={e => e.stopPropagation()}
+// // //                             >
+// // //                               <img
+// // //                                 src={`http://localhost:5000${msg.fileUrl}`}
+// // //                                 alt={msg.fileUrl.split('/').pop()}
+// // //                                 style={{ maxWidth: '96%', maxHeight: 210, borderRadius: 9, boxShadow: '0 1px 12px #000b' }}
+// // //                               />
+// // //                             </a>
+// // //                           ) : (
+// // //                             <a
+// // //                               href={`http://localhost:5000${msg.fileUrl}`}
+// // //                               target="_blank"
+// // //                               rel="noopener noreferrer"
+// // //                               style={{
+// // //                                 wordBreak: 'break-word',
+// // //                                 textDecoration: 'underline',
+// // //                                 color: '#ffd166',
+// // //                                 fontWeight: 600,
+// // //                               }}
+// // //                               onClick={e => e.stopPropagation()}
+// // //                             >
+// // //                               {msg.fileUrl.split('/').pop()}
+// // //                             </a>
+// // //                           )
+// // //                         ) : (
+// // //                           <Typography sx={{ fontSize: 16, fontWeight: 500, py: 0.5 }}>
+// // //                             {msg.content}
+// // //                           </Typography>
+// // //                         )}
+
+// // //                         {!hideHeader && (
+// // //                           <Typography variant="caption" sx={{ opacity: 0.7, mt: 1, color: '#b8bfff', display: 'block' }}>
+// // //                             {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+// // //                           </Typography>
+// // //                         )}
+// // //                       </Box>
+// // //                     </Box>
+// // //                   );
+// // //                 })}
+// // //                 {typingUsers.length > 0 && (
+// // //                   <Typography variant="caption" color="#dbeafe" sx={{ mb: 1 }}>
+// // //                     {typingUsers.join(', ')} {typingUsers.length > 1 ? 'are' : 'is'} typing...
+// // //                   </Typography>
+// // //                 )}
+// // //                 <div ref={messagesEndRef} />
+// // //               </Box>
+
+// // //               {/* File Upload and Message Input */}
+// // //               <Box display="flex" alignItems="center" gap={1} pb={1} pt={0.5}>
+// // //                 <IconButton
+// // //                   color="primary"
+// // //                   component="label"
+// // //                   sx={{
+// // //                     bgcolor: '#ffd166',
+// // //                     '&:hover': { bgcolor: '#62d6e8' },
+// // //                     color: '#21213a',
+// // //                     fontSize: 22,
+// // //                   }}
+// // //                 >
+// // //                   <AttachFileIcon />
+// // //                   <input type="file" hidden onChange={handleFileChange} />
+// // //                 </IconButton>
+// // //                 <Button
+// // //                   variant="contained"
+// // //                   color="primary"
+// // //                   disabled={!file}
+// // //                   onClick={sendFile}
+// // //                   sx={{ fontWeight: 600, py: 1.1, bgcolor: '#62d6e8', color: '#111938', '&:hover': { bgcolor: '#ffd166', color: '#222' } }}
+// // //                 >
+// // //                   Send File
+// // //                 </Button>
+// // //                 <TextField
+// // //                   multiline
+// // //                   minRows={2}
+// // //                   maxRows={5}
+// // //                   placeholder="Type your message..."
+// // //                   value={message}
+// // //                   onChange={(e) => {
+// // //                     setMessage(e.target.value);
+// // //                     handleTyping();
+// // //                   }}
+// // //                   onKeyDown={handleKeyPress}
+// // //                   fullWidth
+// // //                   sx={{
+// // //                     bgcolor: '#222849',
+// // //                     borderRadius: 2.5,
+// // //                     input: { color: '#e0e7ff', fontSize: 16 },
+// // //                   }}
+// // //                 />
+// // //                 <Button
+// // //                   variant="contained"
+// // //                   color="secondary"
+// // //                   disabled={!message.trim()}
+// // //                   onClick={sendMessage}
+// // //                   sx={{
+// // //                     fontWeight: 700,
+// // //                     py: 1.1,
+// // //                     bgcolor: '#7f5af0',
+// // //                     color: '#fff',
+// // //                     '&:hover': { bgcolor: '#62d6e8', color: '#1e2036' }
+// // //                   }}
+// // //                 >
+// // //                   Send
+// // //                 </Button>
+// // //               </Box>
+// // //             </Box>
+// // //           </Paper>
+// // //         </Grid>
+// // //       </Grid>
+// // //     </Box>
+// // //   );
+// // // }
+
+// // // export default Chat;
