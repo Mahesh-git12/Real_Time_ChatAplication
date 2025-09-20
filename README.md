@@ -24,6 +24,11 @@ Connect Instantly, Communicate Seamlessly, Lead the Future
 
 ---
 
+## 🚀 Live Demo
+
+Try the chat application here:  
+[https://real-time-chat-application-lac-nu.vercel.app/](https://real-time-chat-application-lac-nu.vercel.app/)
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -85,6 +90,12 @@ Build Real_Time_ChatApplication from the source and install dependencies:
     ```
     npm install
     ```
+
+**Note:**  
+- Never commit your `.env` file to GitHub (add `.env` to `.gitignore`).
+- When deploying (for example, to Vercel), set these variables in your hosting environment settings.
+
+
 
 ### Usage
 
