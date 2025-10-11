@@ -69,7 +69,7 @@ const LandingPage = ({ onLoginClick, onRegisterClick }) => {
         }}
       >
         <Typography variant="h2" sx={{ fontWeight: 'bold', mb: 3, color: '#50E3C2' }}>
-          ChatMaster
+          YapZone
         </Typography>
         <Typography variant="body1" sx={{ mb: 5, color: '#A0C8F0', fontSize: 19 }}>
           The modern realtime chat application to connect and communicate seamlessly.
