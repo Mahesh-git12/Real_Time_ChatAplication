@@ -36,7 +36,7 @@ function Chat({ userId, username }) {
       transports: ["websocket"]
     });
     socketRef.current.on("chatMessage", (data) => {
-      alert("Received on mobile: " + JSON.stringify(data));
+      // alert("Received on mobile: " + JSON.stringify(data));
       setMessages((prev) => [...prev, data]);
     });
     socketRef.current.on("typing", (data) => {
