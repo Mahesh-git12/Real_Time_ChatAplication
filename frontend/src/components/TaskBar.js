@@ -82,7 +82,7 @@ function TaskBar({ username, profilePhoto, onLogout }) {
               <MenuItem onClick={handleLogoutClick}>Logout</MenuItem>
             </Menu>
             <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 'bold', letterSpacing: 1 }}>
-              ChatMaster
+              YapZone
             </Typography>
           </>
         ) : (
@@ -91,7 +91,7 @@ function TaskBar({ username, profilePhoto, onLogout }) {
               <MenuIcon />
             </IconButton>
             <Typography variant="h6" sx={{ flexGrow: 1, fontWeight: 'bold', letterSpacing: 1 }}>
-              ChatMaster
+              YapZone
             </Typography>
             {navItems.map((item) => (
               <Button
