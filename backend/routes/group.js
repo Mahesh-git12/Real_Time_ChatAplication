@@ -5,7 +5,6 @@ const User = require('../models/User');
 const GroupMessage = require('../models/GroupMessage');
 const protect = require('../middleware/authMiddleware');
 
-
 // Create a group (creator + chosen members)
 router.post('/create', protect, async (req, res) => {
   try {
@@ -37,8 +36,6 @@ router.post('/create', protect, async (req, res) => {
   }
 });
 
-
-
 // Get groups for logged-in user
 router.get('/', protect, async (req, res) => {
   try {
@@ -52,8 +49,6 @@ router.get('/', protect, async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
-
-
 
 // Get groups for a particular user id (optional)
 router.get('/user/:userId', protect, async (req, res) => {
@@ -72,8 +67,6 @@ router.get('/user/:userId', protect, async (req, res) => {
   }
 });
 
-
-
 router.post('/:id/leave', protect, async (req, res) => {
   const groupId = req.params.id;
   try {
@@ -88,8 +81,6 @@ router.post('/:id/leave', protect, async (req, res) => {
       .json({ message: 'Failed to leave group', error: err.message });
   }
 });
-
-
 
 // DELETE a group (by creator only, now robust)
 router.delete('/:id', protect, async (req, res) => {
@@ -110,6 +101,3 @@ router.delete('/:id', protect, async (req, res) => {
 });
 
 module.exports = router;
-
-
-
